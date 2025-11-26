@@ -1,97 +1,53 @@
-# backend/main.py
-from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, EmailStr, validator
-from typing import Optional, List, Dict
-from datetime import datetime
-import json, os, uuid, random
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List, Dict
+from datetime import datetime, timedelta
+import secrets
+from passlib.context import CryptContext
+import json
+import os
+import random
+import uuid
+import aiohttp
+import asyncio
 
-app = FastAPI()
+# Security setup - Remove JWT dependencies
+pwd_context = CryptContext(schemes=["md5_crypt"], deprecated="auto")
 
-# Allow frontend domain + mobile + local dev
-origins = [
-    "*",  # Temp: allow all until stable
+# Get allowed origins from environment
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://pesaprime.vercel.app")
+ALLOWED_ORIGINS = [
+    FRONTEND_URL,
+    "http://localhost:3000",
+    "https://pesaprime.vercel.app",
+    "http://localhost:5173"  # Vite default port
 ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],      # <-- MUST ALLOW OPTIONS HERE
-    allow_headers=["*"],      # <-- MUST ALLOW ALL HEADERS
+app = FastAPI(
+    title="Pesaprime API",
+    description="Personal Finance Dashboard Backend",
+    version="1.0.0"
 )
 
-# ------------------------------
-# IMPORT ROUTES AFTER CORS
-# ------------------------------
-from app.routes import auth, wallet, pnl, investments
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
-app.include_router(wallet.router, prefix="/api/wallet", tags=["Wallet"])
-app.include_router(pnl.router, prefix="/api/pnl", tags=["P&L"])
-app.include_router(investments.router, prefix="/api/investments", tags=["Investments"])
-
-
-    
+# Use absolute paths for production
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
+USERS_FILE = os.path.join(BASE_DIR, "users.json")
+USER_ACTIVITY_FILE = os.path.join(BASE_DIR, "user_activity.json")
+USER_WALLETS_FILE = os.path.join(BASE_DIR, "user_wallets.json")
+USER_INVESTMENTS_FILE = os.path.join(BASE_DIR, "user_investments.json")
+SESSIONS_FILE = os.path.join(BASE_DIR, "sessions.json")  # New sessions file
 
-USERS_FILE = os.path.join(DATA_DIR, "users.json")
-WALLETS_FILE = os.path.join(DATA_DIR, "wallets.json")
-INVESTMENTS_FILE = os.path.join(DATA_DIR, "investments.json")
-ACTIVITIES_FILE = os.path.join(DATA_DIR, "activities.json")
-
-def load_data(filename, default=None):
-    if default is None:
-        default = {}
-    try:
-        if os.path.exists(filename):
-            with open(filename, "r") as f:
-                return json.load(f)
-        return default
-    except Exception as e:
-        print(f"Error loading {filename}: {e}")
-        return default
-
-def save_data(data, filename):
-    try:
-        with open(filename, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"Error saving {filename}: {e}")
-
-def get_next_id(data: Dict):
-    if not data:
-        return "1"
-    numeric_keys = [int(k) for k in data.keys() if k.isdigit()]
-    return str(max(numeric_keys) + 1) if numeric_keys else "1"
-
-def log_activity(user_phone: str, activity_type: str, amount: float, description: str):
-    activities = load_data(ACTIVITIES_FILE, {})
-    activity_id = get_next_id(activities)
-    activity = {
-        "id": activity_id,
-        "user_phone": user_phone,
-        "activity_type": activity_type,
-        "amount": amount,
-        "description": description,
-        "timestamp": datetime.utcnow().isoformat(),
-        "status": "completed"
-    }
-    activities[activity_id] = activity
-    save_data(activities, ACTIVITIES_FILE)
-    return activity
-
-# Simple password hash (very lightweight placeholder)
-def get_password_hash(pw: str):
-    return pw[::-1]  # DO NOT USE IN PRODUCTION
-
-def verify_password(plain: str, hashed: str):
-    return get_password_hash(plain) == hashed
-
-# Pydantic models
+# Pydantic models (remove token-related fields)
 class UserBase(BaseModel):
     name: str
     email: EmailStr
@@ -100,15 +56,22 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
-    @validator('phone_number')
-    def phone_must_have_plus(cls, v):
-        if not v.startswith('+'):
-            raise ValueError("phone must include country code and start with +")
-        return v
-
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+class UserResponse(BaseModel):
+    id: str
+    name: str
+    email: EmailStr
+    phone_number: str
+    created_at: str
+
+class AuthResponse(BaseModel):
+    success: bool
+    message: str
+    user: UserResponse
+    session_id: str  # Replace token with session_id
 
 class WalletData(BaseModel):
     balance: float
@@ -118,205 +81,482 @@ class WalletData(BaseModel):
 class DepositRequest(BaseModel):
     amount: float
     phone_number: str
+    session_id: str  # Add session_id to requests
 
 class WithdrawRequest(BaseModel):
     amount: float
     phone_number: str
+    session_id: str
 
 class InvestmentRequest(BaseModel):
     asset_id: str
     amount: float
     phone_number: str
+    session_id: str
 
-# Basic assets (kept from your original)
-ASSETS_DATA = [
-    {"id":"bitcoin","name":"Bitcoin","symbol":"BTC","type":"crypto","current_price":92036.00,"change_percentage":2.34,"moving_average":91000.50,"trend":"up","chart_url":"https://www.tradingview.com/chart/?symbol=BINANCE:BTCUSDT","hourly_income":160,"min_investment":700,"duration":24},
-    {"id":"ethereum","name":"Ethereum","symbol":"ETH","type":"crypto","current_price":3016.97,"change_percentage":1.23,"moving_average":2980.20,"trend":"up","chart_url":"https://www.tradingview.com/chart/?symbol=BINANCE:ETHUSDT","hourly_income":140,"min_investment":600,"duration":24},
-    {"id":"bnb","name":"Binance Coin","symbol":"BNB","type":"crypto","current_price":321.78,"change_percentage":0.89,"moving_average":318.50,"trend":"up","chart_url":"https://www.tradingview.com/chart/?symbol=BINANCE:BNBUSDT","hourly_income":120,"min_investment":550,"duration":24},
-    {"id":"eur-usd","name":"EUR/USD","symbol":"EURUSD","type":"forex","current_price":1.0892,"change_percentage":0.15,"moving_average":1.0880,"trend":"up","chart_url":"https://www.tradingview.com/chart/?symbol=FX:EURUSD","hourly_income":150,"min_investment":500,"duration":24},
-    {"id":"apple","name":"Apple Inc","symbol":"AAPL","type":"stock","current_price":189.45,"change_percentage":1.23,"moving_average":187.20,"trend":"up","chart_url":"https://www.tradingview.com/chart/?symbol=NASDAQ:AAPL","hourly_income":130,"min_investment":600,"duration":24},
-]
+class TransactionResponse(BaseModel):
+    success: bool
+    message: str
+    new_balance: float
+    new_equity: float
+    transaction_id: str
 
-app = FastAPI(title="PesaPrime (no-jwt)")
+# ... (keep your existing Asset, UserInvestment, UserActivity, PnLData models)
 
+# Session management
+class SessionManager:
+    def __init__(self):
+        self.sessions_file = SESSIONS_FILE
+    
+    def load_sessions(self):
+        return load_data(self.sessions_file, default={})
+    
+    def save_sessions(self, sessions):
+        save_data(sessions, self.sessions_file)
+    
+    def create_session(self, user_email: str, phone_number: str) -> str:
+        sessions = self.load_sessions()
+        session_id = secrets.token_urlsafe(32)
+        
+        sessions[session_id] = {
+            "user_email": user_email,
+            "phone_number": phone_number,
+            "created_at": datetime.utcnow().isoformat(),
+            "last_accessed": datetime.utcnow().isoformat()
+        }
+        
+        self.save_sessions(sessions)
+        return session_id
+    
+    def validate_session(self, session_id: str) -> dict:
+        sessions = self.load_sessions()
+        session = sessions.get(session_id)
+        
+        if not session:
+            return None
+        
+        # Update last accessed time
+        session["last_accessed"] = datetime.utcnow().isoformat()
+        sessions[session_id] = session
+        self.save_sessions(sessions)
+        
+        return session
+    
+    def delete_session(self, session_id: str):
+        sessions = self.load_sessions()
+        if session_id in sessions:
+            del sessions[session_id]
+            self.save_sessions(sessions)
+
+session_manager = SessionManager()
+
+# Simple dependency for session validation
+async def get_current_user(session_id: str):
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Session ID required")
+    
+    session = session_manager.validate_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    users = load_data(USERS_FILE)
+    user = users.get(session["user_email"])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return user
+
+# Utility functions (keep your existing ones)
+def load_data(filename, default=None):
+    """Load data from JSON file"""
+    if default is None:
+        default = {}
+    try:
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                return json.load(f)
+        return default
+    except Exception as e:
+        print(f"Error loading data from {filename}: {e}")
+        return default
+
+def save_data(data, filename):
+    """Save data to JSON file"""
+    try:
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"Error saving data to {filename}: {e}")
+
+def verify_password(plain_password, hashed_password):
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except:
+        return plain_password == hashed_password
+
+def get_password_hash(password):
+    try:
+        return pwd_context.hash(password)
+    except:
+        return password
+
+# ... (keep your existing asset price generation functions)
+
+# Create database tables on startup
 @app.on_event("startup")
-def startup():
-    for f in [USERS_FILE, WALLETS_FILE, INVESTMENTS_FILE, ACTIVITIES_FILE]:
-        if not os.path.exists(f):
-            save_data({}, f)
+async def startup_event():
+    required_files = [USERS_FILE, USER_ACTIVITY_FILE, USER_WALLETS_FILE, USER_INVESTMENTS_FILE, SESSIONS_FILE]
+    for file_path in required_files:
+        if not os.path.exists(file_path):
+            with open(file_path, 'w') as f:
+                json.dump({}, f)
+            print(f"Created {file_path}")
 
+# Routes
 @app.get("/")
-def root():
-    return {"message":"PesaPrime API", "status":"running"}
+async def root():
+    return {"message": "Welcome to PesaDash API"}
 
-# AUTH: register + login (no JWT). returns the user object only
-@app.post("/api/auth/register")
-def register(user_data: UserCreate):
-    users = load_data(USERS_FILE, {})
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy", "service": "PesaDash API", "timestamp": datetime.utcnow().isoformat()}
+
+# Authentication endpoints (updated)
+@app.post("/api/auth/register", response_model=AuthResponse)
+async def register(user_data: UserCreate):
+    users = load_data(USERS_FILE)
+    
     if user_data.email in users:
         raise HTTPException(status_code=400, detail="Email already registered")
-    for u in users.values():
-        if u.get("phone_number") == user_data.phone_number:
+    
+    # Check if phone number is already registered
+    for existing_user in users.values():
+        if isinstance(existing_user, dict) and existing_user.get("phone_number") == user_data.phone_number:
             raise HTTPException(status_code=400, detail="Phone number already registered")
-    user_id = str(uuid.uuid4())
+    
+    user_id = generate_user_id()
+    hashed_password = get_password_hash(user_data.password)
+    
     user = {
         "id": user_id,
         "name": user_data.name,
         "email": user_data.email,
         "phone_number": user_data.phone_number,
-        "hashed_password": get_password_hash(user_data.password),
+        "hashed_password": hashed_password,
         "created_at": datetime.utcnow().isoformat()
     }
+    
+    # Initialize user wallet
+    wallets = load_data(USER_WALLETS_FILE, default={})
+    wallets[user_data.phone_number] = {
+        "balance": 5000.0,  # Start with 5000 KES
+        "equity": 5000.0,
+        "currency": "KES"
+    }
+    
     users[user_data.email] = user
     save_data(users, USERS_FILE)
+    save_data(wallets, USER_WALLETS_FILE)
+    
+    # Create session
+    session_id = session_manager.create_session(user_data.email, user_data.phone_number)
+    
+    # Log registration activity
+    log_user_activity(user_data.phone_number, "registration", 0, "User registered successfully")
+    log_user_activity(user_data.phone_number, "deposit", 5000, "Welcome bonus deposited")
+    
+    return AuthResponse(
+        success=True,
+        message="User registered successfully",
+        user=UserResponse(**{k: v for k, v in user.items() if k != 'hashed_password'}),
+        session_id=session_id
+    )
 
-    wallets = load_data(WALLETS_FILE, {})
-    wallets[user_data.phone_number] = {"balance": 0.0, "equity": 0.0, "currency": "KES"}
-    save_data(wallets, WALLETS_FILE)
-
-    log_activity(user_data.phone_number, "registration", 0, "Account created")
-    log_activity(user_data.phone_number, "deposit", 200, "Welcome bonus")
-    # Return user object (no token)
-    response_user = {k:v for k,v in user.items() if k != "hashed_password"}
-    return {"success": True, "user": response_user}
-
-@app.post("/api/auth/login")
-def login(login_data: UserLogin):
-    users = load_data(USERS_FILE, {})
+@app.post("/api/auth/login", response_model=AuthResponse)
+async def login(login_data: UserLogin):
+    users = load_data(USERS_FILE)
+    
+    print(f"Login attempt for email: {login_data.email}")
+    print(f"Available users: {list(users.keys())}")
+    
     user = users.get(login_data.email)
-    if not user or not verify_password(login_data.password, user.get("hashed_password","")):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"success": True, "user": {k:v for k,v in user.items() if k != "hashed_password"} }
+    
+    if not user:
+        print(f"User not found: {login_data.email}")
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    if not verify_password(login_data.password, user["hashed_password"]):
+        print("Password verification failed")
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    # Create session
+    session_id = session_manager.create_session(user["email"], user["phone_number"])
+    
+    print(f"Login successful for: {user['email']}")
+    
+    return AuthResponse(
+        success=True,
+        message="Login successful",
+        user=UserResponse(**{k: v for k, v in user.items() if k != 'hashed_password'}),
+        session_id=session_id
+    )
 
-# WALLET: pass phone_number as query param
-@app.get("/api/wallet/balance")
-def get_wallet_balance(phone_number: str = Query(...)):
-    wallets = load_data(WALLETS_FILE, {})
-    wallet = wallets.get(phone_number)
-    if wallet is None:
-        raise HTTPException(status_code=404, detail="Wallet not found")
-    # equity update would go here (we keep simple)
-    return wallet
+@app.post("/api/auth/logout")
+async def logout(session_id: str):
+    session_manager.delete_session(session_id)
+    return {"success": True, "message": "Logged out successfully"}
 
-@app.post("/api/wallet/deposit")
-def deposit(req: DepositRequest):
-    wallets = load_data(WALLETS_FILE, {})
-    wallet = wallets.get(req.phone_number, {"balance":0.0,"equity":0.0,"currency":"KES"})
-    wallet["balance"] += req.amount
-    wallet["equity"] += req.amount
-    wallets[req.phone_number] = wallet
-    save_data(wallets, WALLETS_FILE)
-    log_activity(req.phone_number, "deposit", req.amount, f"Deposit: KES {req.amount}")
-    return {"success": True, "message":"Deposit successful", "new_balance": wallet["balance"], "transaction_id": f"DEP{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"}
+@app.get("/api/auth/me", response_model=UserResponse)
+async def get_current_user_info(session_id: str):
+    """Get current user information"""
+    user = await get_current_user(session_id)
+    return UserResponse(**{k: v for k, v in user.items() if k != 'hashed_password'})
 
-@app.post("/api/wallet/withdraw")
-def withdraw(req: WithdrawRequest):
-    wallets = load_data(WALLETS_FILE, {})
-    wallet = wallets.get(req.phone_number)
-    if not wallet:
-        raise HTTPException(status_code=404, detail="Wallet not found")
-    if wallet["balance"] < req.amount:
+# Wallet endpoints (updated with session_id)
+@app.get("/api/wallet/balance/{phone_number}")
+async def get_wallet_balance(phone_number: str, session_id: str):
+    # Validate session
+    await get_current_user(session_id)
+    
+    wallets = load_data(USER_WALLETS_FILE, default={})
+    user_wallet = wallets.get(phone_number, {"balance": 0, "equity": 0, "currency": "KES"})
+    
+    # Update equity based on investments
+    await update_investment_values(phone_number)
+    
+    return WalletData(**user_wallet)
+
+@app.post("/api/wallet/deposit", response_model=TransactionResponse)
+async def deposit_funds(deposit_data: DepositRequest):
+    # Validate session and get user
+    user = await get_current_user(deposit_data.session_id)
+    
+    if deposit_data.phone_number != user["phone_number"]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    wallets = load_data(USER_WALLETS_FILE, default={})
+    user_wallet = wallets.get(user["phone_number"], {"balance": 0, "equity": 0, "currency": "KES"})
+    
+    user_wallet["balance"] += deposit_data.amount
+    user_wallet["equity"] += deposit_data.amount
+    
+    wallets[user["phone_number"]] = user_wallet
+    save_data(wallets, USER_WALLETS_FILE)
+    
+    log_user_activity(
+        user["phone_number"], 
+        "deposit", 
+        deposit_data.amount, 
+        f"Deposit of KSh {deposit_data.amount}"
+    )
+    
+    return TransactionResponse(
+        success=True,
+        message="Deposit successful",
+        new_balance=user_wallet["balance"],
+        new_equity=user_wallet["equity"],
+        transaction_id=f"DEP{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    )
+
+@app.post("/api/wallet/withdraw", response_model=TransactionResponse)
+async def withdraw_funds(withdraw_data: WithdrawRequest):
+    # Validate session and get user
+    user = await get_current_user(withdraw_data.session_id)
+    
+    if withdraw_data.phone_number != user["phone_number"]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    wallets = load_data(USER_WALLETS_FILE, default={})
+    user_wallet = wallets.get(user["phone_number"], {"balance": 0, "equity": 0, "currency": "KES"})
+    
+    if user_wallet["balance"] < withdraw_data.amount:
         raise HTTPException(status_code=400, detail="Insufficient balance")
-    wallet["balance"] -= req.amount
-    wallet["equity"] -= req.amount
-    wallets[req.phone_number] = wallet
-    save_data(wallets, WALLETS_FILE)
-    log_activity(req.phone_number, "withdraw", -req.amount, f"Withdrawal: KES {req.amount}")
-    return {"success": True, "message":"Withdrawal successful", "new_balance": wallet["balance"], "transaction_id": f"WD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"}
+    
+    user_wallet["balance"] -= withdraw_data.amount
+    user_wallet["equity"] -= withdraw_data.amount
+    
+    wallets[user["phone_number"]] = user_wallet
+    save_data(wallets, USER_WALLETS_FILE)
+    
+    log_user_activity(
+        user["phone_number"], 
+        "withdraw", 
+        withdraw_data.amount, 
+        f"Withdrawal of KSh {withdraw_data.amount}"
+    )
+    
+    return TransactionResponse(
+        success=True,
+        message="Withdrawal successful",
+        new_balance=user_wallet["balance"],
+        new_equity=user_wallet["equity"],
+        transaction_id=f"WD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    )
 
-# ASSETS
-@app.get("/api/assets/market")
-def get_assets():
-    # Slight randomization for "live" feel
-    live = []
-    for a in ASSETS_DATA:
-        change = random.uniform(-0.02, 0.02)
-        current_price = round(a["current_price"] * (1+change), 4)
-        live.append({**a, "current_price": current_price, "change_percentage": round(change*100,2)})
-    return live
-
-# INVESTMENTS (legacy style CRUD)
-@app.get("/api/investments/")
-def get_investments():
-    investments = load_data(INVESTMENTS_FILE, {})
-    return list(investments.values())
-
-@app.post("/api/investments/")
-def create_investment(payload: dict):
-    # payload expects {user_id, title, amount, category}
-    investments = load_data(INVESTMENTS_FILE, {})
-    inv_id = get_next_id(investments)
-    inv = {
-        "id": int(inv_id),
-        "user_id": payload.get("user_id"),
-        "title": payload.get("title"),
-        "amount": float(payload.get("amount",0)),
-        "category": payload.get("category","general"),
-        "created_at": datetime.utcnow().isoformat()
+# Investment endpoints (updated with session_id)
+@app.post("/api/investments/buy")
+async def buy_investment(investment_data: InvestmentRequest):
+    # Validate session and get user
+    user = await get_current_user(investment_data.session_id)
+    
+    if investment_data.phone_number != user["phone_number"]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    wallets = load_data(USER_WALLETS_FILE, default={})
+    user_wallet = wallets.get(user["phone_number"], {"balance": 0, "equity": 0, "currency": "KES"})
+    
+    # Convert investment amount to KES for validation
+    amount_kes = investment_data.amount
+    
+    if user_wallet["balance"] < amount_kes:
+        raise HTTPException(status_code=400, detail="Insufficient balance")
+    
+    assets = await generate_dynamic_prices()
+    asset = next((a for a in assets if a["id"] == investment_data.asset_id), None)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    
+    # Check minimum investment (already in KES)
+    if amount_kes < asset["min_investment"]:
+        raise HTTPException(status_code=400, detail=f"Minimum investment is {asset['min_investment']} KES")
+    
+    units = amount_kes / asset["current_price"]
+    
+    investments = load_data(USER_INVESTMENTS_FILE, default={})
+    investment_id = get_next_id(investments)
+    
+    investment = {
+        "id": investment_id,
+        "user_phone": user["phone_number"],
+        "asset_id": investment_data.asset_id,
+        "asset_name": asset["name"],
+        "invested_amount": amount_kes,
+        "current_value": amount_kes,
+        "units": units,
+        "entry_price": asset["current_price"],
+        "current_price": asset["current_price"],
+        "hourly_income": asset["hourly_income"],
+        "total_income": asset["total_income"],
+        "duration": asset["duration"],
+        "roi_percentage": asset["roi_percentage"],
+        "profit_loss": 0.0,
+        "profit_loss_percentage": 0.0,
+        "status": "active",
+        "created_at": datetime.utcnow().isoformat(),
+        "completion_time": (datetime.utcnow() + timedelta(hours=asset["duration"])).isoformat()
     }
-    investments[inv_id] = inv
-    save_data(investments, INVESTMENTS_FILE)
-    return inv
+    
+    investments[investment_id] = investment
+    save_data(investments, USER_INVESTMENTS_FILE)
+    
+    user_wallet["balance"] -= amount_kes
+    wallets[user["phone_number"]] = user_wallet
+    save_data(wallets, USER_WALLETS_FILE)
+    
+    log_user_activity(
+        user["phone_number"], 
+        "investment", 
+        amount_kes, 
+        f"Investment in {asset['name']} - {units:.4f} units"
+    )
+    
+    return {
+        "success": True,
+        "message": f"Investment in {asset['name']} successful",
+        "investment": investment,
+        "new_balance": user_wallet["balance"]
+    }
 
-@app.get("/api/investments/{inv_id}")
-def get_investment(inv_id: int):
-    investments = load_data(INVESTMENTS_FILE, {})
-    inv = investments.get(str(inv_id))
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investment not found")
-    return inv
+# Market data endpoints (public - no auth required)
+@app.get("/api/assets/market", response_model=List[Asset])
+async def get_market_assets():
+    return await generate_dynamic_prices()
 
-@app.put("/api/investments/{inv_id}")
-def update_investment(inv_id: int, payload: dict):
-    investments = load_data(INVESTMENTS_FILE, {})
-    key = str(inv_id)
-    if key not in investments:
-        raise HTTPException(status_code=404, detail="Investment not found")
-    investments[key].update(payload)
-    save_data(investments, INVESTMENTS_FILE)
-    return investments[key]
+@app.get("/api/investments/my/{phone_number}", response_model=List[UserInvestment])
+async def get_my_investments(phone_number: str, session_id: str):
+    # Validate session
+    await get_current_user(session_id)
+    
+    investments = load_data(USER_INVESTMENTS_FILE, default={})
+    user_investments = [
+        inv for inv in investments.values() 
+        if inv["user_phone"] == phone_number and inv["status"] == "active"
+    ]
+    
+    await update_investment_values(phone_number)
+    
+    return user_investments
 
-@app.delete("/api/investments/{inv_id}")
-def delete_investment(inv_id: int):
-    investments = load_data(INVESTMENTS_FILE, {})
-    key = str(inv_id)
-    if key not in investments:
-        raise HTTPException(status_code=404, detail="Investment not found")
-    del investments[key]
-    save_data(investments, INVESTMENTS_FILE)
-    return {"success": True, "message": "Deleted"}
+@app.get("/api/activities/my/{phone_number}", response_model=List[UserActivity])
+async def get_my_activities(phone_number: str, session_id: str):
+    # Validate session
+    await get_current_user(session_id)
+    
+    activities = load_data(USER_ACTIVITY_FILE, default={})
+    user_activities = [
+        activity for activity in activities.values() 
+        if activity["user_phone"] == phone_number
+    ]
+    user_activities.sort(key=lambda x: x["timestamp"], reverse=True)
+    return user_activities[:20]
 
-# USER-SPECIFIC investments by phone (for UI)
-@app.get("/api/investments/my")
-def get_my_investments(phone_number: str = Query(...)):
-    investments = load_data(INVESTMENTS_FILE, {})
-    user_invs = [inv for inv in investments.values() if inv.get("user_id") == phone_number or inv.get("user_phone")==phone_number]
-    return user_invs
-
-# ACTIVITIES
-@app.get("/api/activities/my")
-def get_my_activities(phone_number: str = Query(...)):
-    activities = load_data(ACTIVITIES_FILE, {})
-    user_acts = [a for a in activities.values() if a.get("user_phone") == phone_number]
-    user_acts.sort(key=lambda x: x["timestamp"], reverse=True)
-    return user_acts[:50]
-
-# PnL (simplified)
-@app.get("/api/pnl/current")
-def get_pnl(phone_number: str = Query(...)):
-    investments = load_data(INVESTMENTS_FILE, {})
-    total_invested = 0.0
-    total_current = 0.0
+@app.get("/api/wallet/pnl", response_model=PnLData)
+async def get_user_pnl(phone_number: str, session_id: str):
+    """Calculate user's overall PnL across active investments"""
+    # Validate session
+    await get_current_user(session_id)
+    
+    await update_investment_values(phone_number)
+    investments = load_data(USER_INVESTMENTS_FILE, default={})
+    
+    total_invested = 0
+    total_current_value = 0
+    
     for inv in investments.values():
-        if inv.get("user_id") == phone_number or inv.get("user_phone")==phone_number:
-            invested = float(inv.get("amount",0))
-            total_invested += invested
-            # Simulate current value with small random change
-            total_current += invested * (1 + random.uniform(-0.1, 0.1))
-    profit_loss = total_current - total_invested
-    percentage = (profit_loss / total_invested * 100) if total_invested>0 else 0
-    return {"profit_loss": round(profit_loss,2), "percentage": round(percentage,2), "trend": "up" if profit_loss>=0 else "down"}
+        if inv["user_phone"] == phone_number and inv["status"] == "active":
+            total_invested += inv.get("invested_amount", 0)
+            total_current_value += inv.get("current_value", 0)
+    
+    if total_invested == 0:
+        profit_loss = 0
+        percentage = 0
+        trend = "neutral"
+    else:
+        profit_loss = total_current_value - total_invested
+        percentage = (profit_loss / total_invested) * 100
+        trend = "up" if profit_loss >= 0 else "down"
+    
+    return PnLData(
+        profit_loss=round(profit_loss, 2),
+        percentage=round(percentage, 2),
+        trend=trend
+    )
+
+# ADD MISSING ROUTES THAT YOUR FRONTEND EXPECTS
+@app.get("/api/investments/assets")
+async def get_investment_assets():
+    """Alternative route for assets"""
+    return await generate_dynamic_prices()
+
+@app.get("/api/investments/my-investments")
+async def get_my_investments_alt(phone_number: str, session_id: str):
+    """Alternative route for investments without phone number in URL"""
+    return await get_my_investments(phone_number, session_id)
+
+@app.get("/api/activities")
+async def get_activities_alt(phone_number: str, session_id: str):
+    """Alternative route for activities without phone number in URL"""
+    # Validate session
+    await get_current_user(session_id)
+    
+    activities = load_data(USER_ACTIVITY_FILE, default={})
+    user_activities = [
+        activity for activity in activities.values() 
+        if activity["user_phone"] == phone_number
+    ]
+    user_activities.sort(key=lambda x: x["timestamp"], reverse=True)
+    return user_activities[:20]
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
