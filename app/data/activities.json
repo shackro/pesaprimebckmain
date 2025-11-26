@@ -1,0 +1,47 @@
+{
+  "1": {
+    "id": "1",
+    "user_phone": "+254704213467",
+    "activity_type": "registration",
+    "amount": 0,
+    "description": "Account created",
+    "timestamp": "2025-11-26T11:42:06.213608",
+    "status": "completed"
+  },
+  "2": {
+    "id": "2",
+    "user_phone": "+254704213467",
+    "activity_type": "deposit",
+    "amount": 5000,
+    "description": "Welcome bonus",
+    "timestamp": "2025-11-26T11:42:06.213923",
+    "status": "completed"
+  },
+  "3": {
+    "id": "3",
+    "user_phone": "+254704213467",
+    "activity_type": "deposit",
+    "amount": 100.0,
+    "description": "Deposit: KES 100.0",
+    "timestamp": "2025-11-26T11:44:25.841918",
+    "status": "completed"
+  },
+  "4": {
+    "id": "4",
+    "user_phone": "+254704213467",
+    "activity_type": "investment",
+    "amount": -700.0,
+    "description": "Investment in Bitcoin",
+    "timestamp": "2025-11-26T11:44:42.500740",
+    "status": "completed"
+  },
+  "5": {
+    "id": "5",
+    "user_phone": "+254704213467",
+    "activity_type": "investment",
+    "amount": -720.0,
+    "description": "Investment in Microsoft Corp",
+    "timestamp": "2025-11-26T11:50:52.383272",
+    "status": "completed"
+  }
+}
