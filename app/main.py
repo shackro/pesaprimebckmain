@@ -101,6 +101,56 @@ class TransactionResponse(BaseModel):
     new_equity: float
     transaction_id: str
 
+# ADD THE MISSING MODELS HERE:
+class Asset(BaseModel):
+    id: str
+    name: str
+    symbol: str
+    type: str
+    current_price: float
+    change_percentage: float
+    moving_average: float
+    trend: str
+    chart_url: str
+    hourly_income: float
+    min_investment: float
+    duration: int
+    total_income: float
+    roi_percentage: float
+
+class UserInvestment(BaseModel):
+    id: str
+    user_phone: str
+    asset_id: str
+    asset_name: str
+    invested_amount: float
+    current_value: float
+    units: float
+    entry_price: float
+    current_price: float
+    profit_loss: float
+    profit_loss_percentage: float
+    status: str
+    created_at: str
+    hourly_income: Optional[float] = None
+    total_income: Optional[float] = None
+    duration: Optional[int] = None
+    roi_percentage: Optional[float] = None
+    completion_time: Optional[str] = None
+
+class UserActivity(BaseModel):
+    id: str
+    user_phone: str
+    activity_type: str
+    amount: float
+    description: str
+    timestamp: str
+    status: str
+
+class PnLData(BaseModel):
+    profit_loss: float
+    percentage: float
+    trend: str
 
 # PRODUCTION ASSETS DATA
 PRODUCTION_ASSETS = {
@@ -176,7 +226,6 @@ TODAYS_BASE_PRICES = {
     'COP': 1250.00, 'COF': 280.40, 'WHE': 350.25, 'COR': 295.80,
     'SOY': 420.60, 'SUG': 75.30
 }
-
 
 # Asset price generation functions
 async def fetch_real_crypto_price(coin_id: str, symbol: str):
@@ -630,8 +679,6 @@ def get_password_hash(password):
         return pwd_context.hash(password)
     except:
         return password
-
-# ... (keep your existing asset price generation functions)
 
 # Create database tables on startup
 @app.on_event("startup")
