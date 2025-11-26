@@ -100,8 +100,361 @@ class TransactionResponse(BaseModel):
     new_balance: float
     new_equity: float
     transaction_id: str
+# Asset price generation functions
+async def fetch_real_crypto_price(coin_id: str, symbol: str):
+    """
+    Fetch real cryptocurrency prices from CoinGecko API
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Use CoinGecko API to get real prices
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd&include_24hr_change=true"
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if coin_id in data:
+                        price_data = data[coin_id]
+                        current_price = price_data.get('usd', TODAYS_BASE_PRICES.get(symbol, 100))
+                        change_24h = price_data.get('usd_24h_change', 0) or 0
+                        
+                        # Convert to KES (approximate conversion rate)
+                        usd_to_kes = 130  # Approximate USD to KES rate
+                        current_price_kes = current_price * usd_to_kes
+                        
+                        return {
+                            'current_price': round(current_price_kes, 2),
+                            'change_percentage': round(change_24h, 2)
+                        }
+    except Exception as e:
+        print(f"Error fetching crypto price for {symbol}: {e}")
+    
+    # Fallback to simulated data
+    base_price = TODAYS_BASE_PRICES.get(symbol, 100)
+    change = random.uniform(-0.03, 0.03)  # More realistic crypto volatility
+    current_price = base_price * (1 + change)
+    return {
+        'current_price': round(current_price, 2),
+        'change_percentage': round(change * 100, 2)
+    }
 
-# ... (keep your existing Asset, UserInvestment, UserActivity, PnLData models)
+async def fetch_real_forex_price(forex_pair: str, symbol: str):
+    """
+    Fetch real forex prices (fallback to simulated for demo)
+    """
+    try:
+        # Using Alpha Vantage or other free forex API would go here
+        # For now, we'll use simulated data with realistic forex movements
+        base_price = TODAYS_BASE_PRICES.get(symbol, 100)
+        
+        # Forex typically has smaller movements than crypto
+        change = random.uniform(-0.008, 0.008)
+        current_price = base_price * (1 + change)
+        
+        return {
+            'current_price': round(current_price, 4),
+            'change_percentage': round(change * 100, 2)
+        }
+    except Exception as e:
+        print(f"Error fetching forex price for {symbol}: {e}")
+        # Fallback
+        base_price = TODAYS_BASE_PRICES.get(symbol, 100)
+        change = random.uniform(-0.01, 0.01)
+        current_price = base_price * (1 + change)
+        return {
+            'current_price': round(current_price, 4),
+            'change_percentage': round(change * 100, 2)
+        }
+
+async def fetch_real_stock_price(symbol: str):
+    """
+    Fetch real stock prices (fallback to simulated for demo)
+    """
+    try:
+        # Using Alpha Vantage or Yahoo Finance API would go here
+        base_price = TODAYS_BASE_PRICES.get(symbol, 100)
+        
+        # Stock market typical movements
+        change = random.uniform(-0.02, 0.02)
+        current_price = base_price * (1 + change)
+        
+        return {
+            'current_price': round(current_price, 2),
+            'change_percentage': round(change * 100, 2)
+        }
+    except Exception as e:
+        print(f"Error fetching stock price for {symbol}: {e}")
+        # Fallback
+        base_price = TODAYS_BASE_PRICES.get(symbol, 100)
+        change = random.uniform(-0.015, 0.015)
+        current_price = base_price * (1 + change)
+        return {
+            'current_price': round(current_price, 2),
+            'change_percentage': round(change * 100, 2)
+        }
+
+async def fetch_real_commodity_price(commodity: str, symbol: str):
+    """
+    Fetch real commodity prices (fallback to simulated for demo)
+    """
+    try:
+        base_price = TODAYS_BASE_PRICES.get(symbol, 100)
+        
+        # Commodity typical movements
+        change = random.uniform(-0.015, 0.015)
+        current_price = base_price * (1 + change)
+        
+        return {
+            'current_price': round(current_price, 2),
+            'change_percentage': round(change * 100, 2)
+        }
+    except Exception as e:
+        print(f"Error fetching commodity price for {symbol}: {e}")
+        # Fallback
+        base_price = TODAYS_BASE_PRICES.get(symbol, 100)
+        change = random.uniform(-0.01, 0.01)
+        current_price = base_price * (1 + change)
+        return {
+            'current_price': round(current_price, 2),
+            'change_percentage': round(change * 100, 2)
+        }
+
+async def generate_real_time_prices():
+    """
+    Generate realistic dynamic prices with real-time data where available
+    """
+    assets_with_prices = []
+    all_assets = []
+    
+    # Flatten all assets from categories
+    for category_assets in PRODUCTION_ASSETS.values():
+        all_assets.extend(category_assets)
+    
+    # Fetch prices concurrently
+    tasks = []
+    for asset in all_assets:
+        if asset['type'] == 'crypto':
+            task = fetch_real_crypto_price(asset['coingecko_id'], asset['symbol'])
+        elif asset['type'] == 'forex':
+            task = fetch_real_forex_price(asset.get('forex_pair', ''), asset['symbol'])
+        elif asset['type'] == 'stocks':
+            task = fetch_real_stock_price(asset['symbol'])
+        elif asset['type'] == 'commodities':
+            task = fetch_real_commodity_price(asset['name'], asset['symbol'])
+        else:
+            # Default fallback
+            base_price = TODAYS_BASE_PRICES.get(asset['symbol'], 100)
+            change = random.uniform(-0.01, 0.01)
+            current_price = base_price * (1 + change)
+            task = asyncio.sleep(0)  # Dummy task
+            task.result = lambda: {
+                'current_price': round(current_price, 2),
+                'change_percentage': round(change * 100, 2)
+            }
+        
+        tasks.append((asset, task))
+    
+    # Execute all price fetches concurrently
+    for asset, task in tasks:
+        try:
+            if asyncio.iscoroutine(task):
+                price_data = await task
+            else:
+                price_data = task.result()
+            
+            current_price = price_data['current_price']
+            change_percentage = price_data['change_percentage']
+            
+            # Calculate moving average (simplified)
+            moving_avg = current_price * random.uniform(0.98, 1.02)
+            
+            # Determine trend
+            trend = "up" if change_percentage >= 0 else "down"
+            
+            # Calculate investment metrics in KES
+            hourly_income_kes = random.uniform(asset['hourly_income_range'][0], asset['hourly_income_range'][1])
+            total_income_kes = hourly_income_kes * asset['duration']
+            roi_percentage = (total_income_kes / asset['min_investment_kes']) * 100
+            
+            assets_with_prices.append({
+                "id": asset["id"],
+                "name": asset["name"],
+                "symbol": asset["symbol"],
+                "type": asset["type"],
+                "current_price": current_price,
+                "change_percentage": round(change_percentage, 2),
+                "moving_average": round(moving_avg, 4),
+                "trend": trend,
+                "chart_url": f"https://www.tradingview.com/chart/?symbol={asset['symbol']}",
+                "hourly_income": round(hourly_income_kes, 2),
+                "min_investment": asset['min_investment_kes'],
+                "duration": asset["duration"],
+                "total_income": round(total_income_kes, 2),
+                "roi_percentage": round(roi_percentage, 1)
+            })
+            
+        except Exception as e:
+            print(f"Error processing asset {asset['name']}: {e}")
+            # Fallback for this specific asset
+            base_price = TODAYS_BASE_PRICES.get(asset['symbol'], 100)
+            change = random.uniform(-0.01, 0.01)
+            current_price = base_price * (1 + change)
+            
+            hourly_income_kes = random.uniform(asset['hourly_income_range'][0], asset['hourly_income_range'][1])
+            total_income_kes = hourly_income_kes * asset['duration']
+            roi_percentage = (total_income_kes / asset['min_investment_kes']) * 100
+            
+            assets_with_prices.append({
+                "id": asset["id"],
+                "name": asset["name"],
+                "symbol": asset["symbol"],
+                "type": asset["type"],
+                "current_price": round(current_price, 4),
+                "change_percentage": round(change * 100, 2),
+                "moving_average": round(current_price * random.uniform(0.98, 1.02), 4),
+                "trend": "up" if change >= 0 else "down",
+                "chart_url": f"https://www.tradingview.com/chart/?symbol={asset['symbol']}",
+                "hourly_income": round(hourly_income_kes, 2),
+                "min_investment": asset['min_investment_kes'],
+                "duration": asset["duration"],
+                "total_income": round(total_income_kes, 2),
+                "roi_percentage": round(roi_percentage, 1)
+            })
+    
+    return assets_with_prices
+
+async def generate_dynamic_prices():
+    """Generate realistic dynamic prices with real-time data"""
+    try:
+        return await generate_real_time_prices()
+    except Exception as e:
+        print(f"Error generating real-time prices: {e}")
+        # Fallback to simulated data with today's prices
+        return await generate_fallback_prices()
+
+async def generate_fallback_prices():
+    """Fallback price generation using today's market prices"""
+    assets_with_prices = []
+    
+    all_assets = []
+    for category_assets in PRODUCTION_ASSETS.values():
+        all_assets.extend(category_assets)
+    
+    for asset in all_assets:
+        base_price = TODAYS_BASE_PRICES.get(asset['symbol'], 100)
+        
+        # Different volatility based on asset type
+        if asset['type'] == 'crypto':
+            change = random.uniform(-0.03, 0.03)  # High volatility for crypto
+        elif asset['type'] == 'stocks':
+            change = random.uniform(-0.02, 0.02)  # Medium volatility for stocks
+        elif asset['type'] == 'forex':
+            change = random.uniform(-0.008, 0.008)  # Low volatility for forex
+        else:
+            change = random.uniform(-0.015, 0.015)  # Medium volatility for others
+        
+        current_price = base_price * (1 + change)
+        change_percentage = change * 100
+        
+        # Calculate moving average
+        moving_avg = current_price * random.uniform(0.98, 1.02)
+        
+        # Hourly income in KSH (realistic range based on asset type)
+        if asset['type'] == 'crypto':
+            hourly_income_range = [150, 350]  # Higher returns for crypto
+        elif asset['type'] == 'stocks':
+            hourly_income_range = [120, 280]  # Medium returns for stocks
+        else:
+            hourly_income_range = [100, 250]  # Lower returns for others
+        
+        hourly_income_kes = random.uniform(hourly_income_range[0], hourly_income_range[1])
+        total_income_kes = hourly_income_kes * asset['duration']
+        roi_percentage = (total_income_kes / asset['min_investment_kes']) * 100
+        
+        assets_with_prices.append({
+            "id": asset["id"],
+            "name": asset["name"],
+            "symbol": asset["symbol"],
+            "type": asset["type"],
+            "current_price": round(current_price, 4),
+            "change_percentage": round(change_percentage, 2),
+            "moving_average": round(moving_avg, 4),
+            "trend": "up" if change_percentage >= 0 else "down",
+            "chart_url": f"https://www.tradingview.com/chart/?symbol={asset['symbol']}",
+            "hourly_income": round(hourly_income_kes, 2),
+            "min_investment": asset['min_investment_kes'],
+            "duration": asset["duration"],
+            "total_income": round(total_income_kes, 2),
+            "roi_percentage": round(roi_percentage, 1)
+        })
+    
+    return assets_with_prices
+
+# Update investment values function
+async def update_investment_values(user_phone: str):
+    """Update investment values based on current market prices"""
+    investments = load_data(USER_INVESTMENTS_FILE, default={})
+    current_assets = await generate_dynamic_prices()
+    
+    for inv_id, investment in investments.items():
+        if investment["user_phone"] == user_phone and investment["status"] == "active":
+            asset = next((a for a in current_assets if a["id"] == investment["asset_id"]), None)
+            if asset:
+                current_value = investment["units"] * asset["current_price"]
+                profit_loss = current_value - investment["invested_amount"]
+                profit_loss_percentage = (profit_loss / investment["invested_amount"]) * 100
+                
+                investment.update({
+                    "current_value": current_value,
+                    "current_price": asset["current_price"],
+                    "profit_loss": profit_loss,
+                    "profit_loss_percentage": profit_loss_percentage
+                })
+    
+    save_data(investments, USER_INVESTMENTS_FILE)
+
+# User activity logging function
+def log_user_activity(user_phone: str, activity_type: str, amount: float, description: str, status: str = "completed"):
+    """Log user activity for tracking"""
+    activities = load_data(USER_ACTIVITY_FILE, default={})
+    activity_id = get_next_id(activities)
+    
+    activity = {
+        "id": activity_id,
+        "user_phone": user_phone,
+        "activity_type": activity_type,
+        "amount": amount,
+        "description": description,
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": status
+    }
+    
+    activities[activity_id] = activity
+    save_data(activities, USER_ACTIVITY_FILE)
+    return activity
+
+# ID generation functions
+def get_next_id(data):
+    """Generate next ID for data that uses numeric IDs"""
+    if not data:
+        return "1"
+    
+    numeric_keys = []
+    for key in data.keys():
+        try:
+            numeric_keys.append(int(key))
+        except ValueError:
+            continue
+    
+    if not numeric_keys:
+        return "1"
+    
+    max_id = max(numeric_keys)
+    return str(max_id + 1)
+
+def generate_user_id():
+    """Generate a unique user ID"""
+    return str(uuid.uuid4())
+    
 
 # Session management
 class SessionManager:
