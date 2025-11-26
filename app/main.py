@@ -208,43 +208,27 @@ ASSETS_DATA = [
 # UTILITY FUNCTIONS
 # ===============================
 def load_data(filename, default=None):
-    """Load data from JSON file"""
-    if default is None:
-        default = {}
+    if default is None: default = {}
     try:
         if os.path.exists(filename):
-            with open(filename, 'r') as f:
-                return json.load(f)
+            with open(filename, 'r') as f: return json.load(f)
         return default
-    except Exception as e:
-        print(f"Error loading {filename}: {e}")
-        return default
+    except: return default
 
 def save_data(data, filename):
-    """Save data to JSON file"""
     try:
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"Error saving {filename}: {e}")
+        with open(filename, 'w') as f: json.dump(data, f, indent=2)
+    except: pass
 
 def get_next_id(data):
-    """Generate next numeric ID"""
-    if not data:
-        return "1"
+    if not data: return "1"
     numeric_keys = [int(k) for k in data.keys() if k.isdigit()]
     return str(max(numeric_keys) + 1) if numeric_keys else "1"
 
-def get_password_hash(password: str) -> str:
-    """Hash password using sha256_crypt"""
-    return pwd_context.hash(password)
-
+def get_password_hash(password: str) -> str: return pwd_context.hash(password)
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password"""
-    try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except:
-        return plain_password == hashed_password
+    try: return pwd_context.verify(plain_password, hashed_password)
+    except: return plain_password == hashed_password
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -256,71 +240,49 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        if email is None: raise HTTPException(status_code=401, detail="Invalid credentials")
+    except jwt.ExpiredSignatureError: raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError: raise HTTPException(status_code=401, detail="Invalid token")
     
     users = load_data(USERS_FILE)
     user = users.get(email)
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    if not user: raise HTTPException(status_code=401, detail="User not found")
     return user
 
 def log_activity(user_phone: str, activity_type: str, amount: float, description: str):
-    """Log user activity"""
     activities = load_data(ACTIVITIES_FILE, {})
     activity_id = get_next_id(activities)
-    
-    activity = {
-        "id": activity_id,
-        "user_phone": user_phone,
-        "activity_type": activity_type,
-        "amount": amount,
-        "description": description,
-        "timestamp": datetime.utcnow().isoformat(),
-        "status": "completed"
-    }
-    
+    activity = {"id": activity_id,"user_phone": user_phone,"activity_type": activity_type,
+                "amount": amount,"description": description,"timestamp": datetime.utcnow().isoformat(),
+                "status": "completed"}
     activities[activity_id] = activity
     save_data(activities, ACTIVITIES_FILE)
     return activity
 
 async def update_investment_prices():
-    """Update investment prices with realistic fluctuations"""
     investments = load_data(INVESTMENTS_FILE, {})
-    
     for inv_id, investment in investments.items():
         if investment["status"] == "active":
-            # Find current asset price
             asset = next((a for a in ASSETS_DATA if a["id"] == investment["asset_id"]), None)
             if asset:
-                # Add some random fluctuation
                 fluctuation = random.uniform(-0.02, 0.02)
                 current_price = asset["current_price"] * (1 + fluctuation)
                 current_value = investment["units"] * current_price
                 profit_loss = current_value - investment["invested_amount"]
                 profit_loss_percentage = (profit_loss / investment["invested_amount"]) * 100
-                
                 investment.update({
                     "current_value": round(current_value, 2),
                     "current_price": round(current_price, 4),
                     "profit_loss": round(profit_loss, 2),
                     "profit_loss_percentage": round(profit_loss_percentage, 2)
                 })
-    
     save_data(investments, INVESTMENTS_FILE)
 
 async def generate_live_prices():
-    """Generate live prices with small fluctuations"""
     live_assets = []
     for asset in ASSETS_DATA:
-        # Add small random fluctuations
         change = random.uniform(-0.015, 0.015)
         current_price = asset["current_price"] * (1 + change)
-        
         live_assets.append({
             **asset,
             "current_price": round(current_price, 4),
@@ -328,219 +290,144 @@ async def generate_live_prices():
             "moving_average": round(current_price * random.uniform(0.99, 1.01), 4),
             "trend": "up" if change >= 0 else "down"
         })
-    
     return live_assets
+
+def get_user_wallet(phone_number: str):
+    wallets = load_data(WALLETS_FILE)
+    wallet = wallets.get(phone_number, {"balance": 0.0, "equity": 0.0, "currency": "KES"})
+    investments = load_data(INVESTMENTS_FILE, {})
+    total_investment_value = sum(
+        inv["current_value"] for inv in investments.values()
+        if inv["user_phone"] == phone_number and inv["status"] == "active"
+    )
+    wallet["equity"] = wallet["balance"] + total_investment_value
+    return wallet
 
 # ===============================
 # FASTAPI APP
 # ===============================
-app = FastAPI(
-    title="PesaPrime API",
-    description="Investment Platform Backend",
-    version="1.0.0"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="PesaPrime API", description="Investment Platform Backend", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
 async def startup():
-    """Initialize data files"""
     for file_path in [USERS_FILE, WALLETS_FILE, INVESTMENTS_FILE, ACTIVITIES_FILE]:
-        if not os.path.exists(file_path):
-            save_data({}, file_path)
+        if not os.path.exists(file_path): save_data({}, file_path)
 
 # ===============================
 # ROUTES
 # ===============================
 @app.get("/")
-async def root():
-    return {"message": "PesaPrime API", "status": "running"}
-
+async def root(): return {"message": "PesaPrime API", "status": "running"}
 @app.get("/health")
-async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+async def health(): return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
-# AUTH ROUTES
+# -------------------------------
+# AUTH
+# -------------------------------
 @app.post("/api/auth/register", response_model=AuthResponse)
 async def register(user_data: UserCreate):
     users = load_data(USERS_FILE)
-    
-    # Check existing user
-    if user_data.email in users:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
+    if user_data.email in users: raise HTTPException(status_code=400, detail="Email already registered")
     for user in users.values():
         if user.get("phone_number") == user_data.phone_number:
             raise HTTPException(status_code=400, detail="Phone number already registered")
-    
-    # Create user
     user_id = str(uuid.uuid4())
-    user = {
-        "id": user_id,
-        "name": user_data.name,
-        "email": user_data.email,
-        "phone_number": user_data.phone_number,
-        "hashed_password": get_password_hash(user_data.password),
-        "created_at": datetime.utcnow().isoformat()
-    }
-    
-    # Initialize wallet
+    user = {"id": user_id,"name": user_data.name,"email": user_data.email,"phone_number": user_data.phone_number,
+            "hashed_password": get_password_hash(user_data.password),"created_at": datetime.utcnow().isoformat()}
     wallets = load_data(WALLETS_FILE)
-    wallets[user_data.phone_number] = {
-        "balance": 0.0,  # Starting bonus
-        "equity": 0.0,
-        "currency": "KES"
-    }
-    
+    wallets[user_data.phone_number] = {"balance": 0.0, "equity": 0.0, "currency": "KES"}
     users[user_data.email] = user
     save_data(users, USERS_FILE)
     save_data(wallets, WALLETS_FILE)
-    
-    # Log activities
     log_activity(user_data.phone_number, "registration", 0, "Account created")
     log_activity(user_data.phone_number, "deposit", 200, "Welcome bonus")
-    
-    # Create token
     access_token = create_access_token({"sub": user_data.email})
-    
-    return AuthResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserResponse(**{k: v for k, v in user.items() if k != "hashed_password"})
-    )
+    return AuthResponse(access_token=access_token, token_type="bearer", user=UserResponse(**{k:v for k,v in user.items() if k!="hashed_password"}))
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 async def login(login_data: UserLogin):
     users = load_data(USERS_FILE)
     user = users.get(login_data.email)
-    
     if not user or not verify_password(login_data.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
     access_token = create_access_token({"sub": user["email"]})
-    
-    return AuthResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserResponse(**{k: v for k, v in user.items() if k != "hashed_password"})
-    )
+    return AuthResponse(access_token=access_token, token_type="bearer", user=UserResponse(**{k:v for k,v in user.items() if k!="hashed_password"}))
 
 @app.get("/api/auth/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
-    return UserResponse(**{k: v for k, v in current_user.items() if k != "hashed_password"})
+    return UserResponse(**{k:v for k,v in current_user.items() if k!="hashed_password"})
 
-# WALLET ROUTES
+# -------------------------------
+# WALLET
+# -------------------------------
 @app.get("/api/wallet/balance", response_model=WalletData)
 async def get_balance(current_user: dict = Depends(get_current_user)):
-    wallets = load_data(WALLETS_FILE)
-    wallet = wallets.get(current_user["phone_number"], {"balance": 0, "equity": 0, "currency": "KES"})
-    
-    # Update equity based on investments
     await update_investment_prices()
-    
+    wallet = get_user_wallet(current_user["phone_number"])
     return WalletData(**wallet)
 
 @app.post("/api/wallet/deposit", response_model=TransactionResponse)
 async def deposit(deposit_data: DepositRequest, current_user: dict = Depends(get_current_user)):
     if deposit_data.phone_number != current_user["phone_number"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
     wallets = load_data(WALLETS_FILE)
-    wallet = wallets.get(current_user["phone_number"], {"balance": 0, "equity": 0, "currency": "KES"})
-    
+    wallet = wallets.get(current_user["phone_number"], {"balance":0.0,"equity":0.0,"currency":"KES"})
     wallet["balance"] += deposit_data.amount
-    wallet["equity"] += deposit_data.amount
-    
+    wallet = get_user_wallet(current_user["phone_number"])
     wallets[current_user["phone_number"]] = wallet
     save_data(wallets, WALLETS_FILE)
-    
     log_activity(current_user["phone_number"], "deposit", deposit_data.amount, f"Deposit: KES {deposit_data.amount}")
-    
-    return TransactionResponse(
-        success=True,
-        message="Deposit successful",
-        new_balance=wallet["balance"],
-        transaction_id=f"DEP{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    )
+    return TransactionResponse(success=True, message="Deposit successful", new_balance=wallet["balance"], transaction_id=f"DEP{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
 
 @app.post("/api/wallet/withdraw", response_model=TransactionResponse)
 async def withdraw(withdraw_data: WithdrawRequest, current_user: dict = Depends(get_current_user)):
     if withdraw_data.phone_number != current_user["phone_number"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
     wallets = load_data(WALLETS_FILE)
-    wallet = wallets.get(current_user["phone_number"], {"balance": 0, "equity": 0, "currency": "KES"})
-    
+    wallet = wallets.get(current_user["phone_number"], {"balance":0.0,"equity":0.0,"currency":"KES"})
     if wallet["balance"] < withdraw_data.amount:
         raise HTTPException(status_code=400, detail="Insufficient balance")
-    
     wallet["balance"] -= withdraw_data.amount
-    wallet["equity"] -= withdraw_data.amount
-    
+    wallet = get_user_wallet(current_user["phone_number"])
     wallets[current_user["phone_number"]] = wallet
     save_data(wallets, WALLETS_FILE)
-    
     log_activity(current_user["phone_number"], "withdraw", -withdraw_data.amount, f"Withdrawal: KES {withdraw_data.amount}")
-    
-    return TransactionResponse(
-        success=True,
-        message="Withdrawal successful",
-        new_balance=wallet["balance"],
-        transaction_id=f"WD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    )
+    return TransactionResponse(success=True, message="Withdrawal successful", new_balance=wallet["balance"], transaction_id=f"WD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
 
-# ASSETS ROUTES
+# -------------------------------
+# ASSETS
+# -------------------------------
 @app.get("/api/assets/market", response_model=List[Asset])
-async def get_assets():
-    return await generate_live_prices()
+async def get_assets(): return await generate_live_prices()
 
-# INVESTMENT ROUTES
+# -------------------------------
+# INVESTMENTS
+# -------------------------------
 @app.get("/api/investments/my", response_model=List[UserInvestment])
 async def get_my_investments(current_user: dict = Depends(get_current_user)):
     await update_investment_prices()
     investments = load_data(INVESTMENTS_FILE, {})
-    
-    user_investments = [
-        inv for inv in investments.values() 
-        if inv["user_phone"] == current_user["phone_number"] and inv["status"] == "active"
-    ]
-    
+    user_investments = [inv for inv in investments.values() if inv["user_phone"]==current_user["phone_number"] and inv["status"]=="active"]
     return user_investments
 
 @app.post("/api/investments/buy")
 async def buy_investment(investment_data: InvestmentRequest, current_user: dict = Depends(get_current_user)):
     if investment_data.phone_number != current_user["phone_number"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
-    
     wallets = load_data(WALLETS_FILE)
-    wallet = wallets.get(current_user["phone_number"], {"balance": 0, "equity": 0, "currency": "KES"})
-    
+    wallet = wallets.get(current_user["phone_number"], {"balance":0.0,"equity":0.0,"currency":"KES"})
     if wallet["balance"] < investment_data.amount:
         raise HTTPException(status_code=400, detail="Insufficient balance")
-    
-    # Get asset
     assets = await generate_live_prices()
     asset = next((a for a in assets if a["id"] == investment_data.asset_id), None)
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    
+    if not asset: raise HTTPException(status_code=404, detail="Asset not found")
     if investment_data.amount < asset["min_investment"]:
         raise HTTPException(status_code=400, detail=f"Minimum investment: KES {asset['min_investment']}")
-    
-    # Calculate units
     units = investment_data.amount / asset["current_price"]
-    
-    # Create investment
     investments = load_data(INVESTMENTS_FILE, {})
     investment_id = get_next_id(investments)
-    
-    investment = {
+    new_investment = {
         "id": investment_id,
         "user_phone": current_user["phone_number"],
         "asset_id": asset["id"],
@@ -555,34 +442,40 @@ async def buy_investment(investment_data: InvestmentRequest, current_user: dict 
         "status": "active",
         "created_at": datetime.utcnow().isoformat()
     }
-    
-    investments[investment_id] = investment
-    save_data(investments, INVESTMENTS_FILE)
-    
-    # Update wallet
+    investments[investment_id] = new_investment
     wallet["balance"] -= investment_data.amount
+    wallet = get_user_wallet(current_user["phone_number"])
     wallets[current_user["phone_number"]] = wallet
     save_data(wallets, WALLETS_FILE)
-    
-    log_activity(current_user["phone_number"], "investment", -investment_data.amount, f"Investment in {asset['name']}")
-    
-    return {
-        "success": True,
-        "message": f"Investment in {asset['name']} successful",
-        "investment": investment,
-        "new_balance": wallet["balance"]
-    }
+    save_data(investments, INVESTMENTS_FILE)
+    log_activity(current_user["phone_number"], "investment", -investment_data.amount, f"Bought {asset['name']} for KES {investment_data.amount}")
+    return {"success": True, "message": f"Investment successful: {asset['name']}", "investment": new_investment}
 
-# ACTIVITIES ROUTES
+# -------------------------------
+# PnL
+# -------------------------------
+@app.get("/api/pnl/current", response_model=PnLData)
+async def get_pnl(current_user: dict = Depends(get_current_user)):
+    await update_investment_prices()
+    investments = load_data(INVESTMENTS_FILE, {})
+    user_investments = [inv for inv in investments.values() if inv["user_phone"]==current_user["phone_number"] and inv["status"]=="active"]
+    total_invested = sum(inv["invested_amount"] for inv in user_investments)
+    total_current = sum(inv["current_value"] for inv in user_investments)
+    profit_loss = total_current - total_invested
+    percentage = (profit_loss / total_invested) * 100 if total_invested else 0.0
+    trend = "up" if profit_loss >= 0 else "down"
+    return PnLData(profit_loss=round(profit_loss,2), percentage=round(percentage,2), trend=trend)
+
+# -------------------------------
+# ACTIVITIES
+# -------------------------------
 @app.get("/api/activities/my", response_model=List[UserActivity])
-async def get_my_activities(current_user: dict = Depends(get_current_user)):
+async def get_activities(current_user: dict = Depends(get_current_user)):
     activities = load_data(ACTIVITIES_FILE, {})
-    user_activities = [
-        activity for activity in activities.values() 
-        if activity["user_phone"] == current_user["phone_number"]
-    ]
+    user_activities = [act for act in activities.values() if act["user_phone"]==current_user["phone_number"]]
     user_activities.sort(key=lambda x: x["timestamp"], reverse=True)
-    return user_activities[:20]
+    return user_activities[:20]  # last 20
+
 
 # PnL ROUTES
 @app.get("/api/pnl/current", response_model=PnLData)
