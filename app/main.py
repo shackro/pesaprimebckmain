@@ -16,7 +16,7 @@ import asyncio
 # ===============================
 # CONFIGURATION
 # ===============================
-SECRET_KEY = os.getenv("SECRET_KEY", "your-super-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzaGFja3JvYXJlbEBnbWFpbC5jb20iLCJleHAiOjE3NjQwNjc3ODd9.j5xhoo0Pv1Lg9jAbrHAWPiUMnOG8b4MoTlwWaBA9FG8")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
