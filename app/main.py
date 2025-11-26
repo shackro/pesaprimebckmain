@@ -100,6 +100,84 @@ class TransactionResponse(BaseModel):
     new_balance: float
     new_equity: float
     transaction_id: str
+
+
+# PRODUCTION ASSETS DATA
+PRODUCTION_ASSETS = {
+    'crypto': [
+        {'id': 'bitcoin', 'name': 'Bitcoin', 'symbol': 'BTC', 'type': 'crypto', 'coingecko_id': 'bitcoin', 'min_investment_kes': 450, 'hourly_income_range': [90, 150], 'duration': 24},
+        {'id': 'ethereum', 'name': 'Ethereum', 'symbol': 'ETH', 'type': 'crypto', 'coingecko_id': 'ethereum', 'min_investment_kes': 450, 'hourly_income_range': [85, 140], 'duration': 24},
+        {'id': 'binancecoin', 'name': 'Binance Coin', 'symbol': 'BNB', 'type': 'crypto', 'coingecko_id': 'binancecoin', 'min_investment_kes': 450, 'hourly_income_range': [80, 130], 'duration': 24},
+        {'id': 'solana', 'name': 'Solana', 'symbol': 'SOL', 'type': 'crypto', 'coingecko_id': 'solana', 'min_investment_kes': 450, 'hourly_income_range': [95, 160], 'duration': 24},
+        {'id': 'ripple', 'name': 'Ripple', 'symbol': 'XRP', 'type': 'crypto', 'coingecko_id': 'ripple', 'min_investment_kes': 450, 'hourly_income_range': [75, 120], 'duration': 24},
+        {'id': 'cardano', 'name': 'Cardano', 'symbol': 'ADA', 'type': 'crypto', 'coingecko_id': 'cardano', 'min_investment_kes': 450, 'hourly_income_range': [70, 110], 'duration': 24},
+        {'id': 'dogecoin', 'name': 'Dogecoin', 'symbol': 'DOGE', 'type': 'crypto', 'coingecko_id': 'dogecoin', 'min_investment_kes': 450, 'hourly_income_range': [65, 100], 'duration': 24},
+        {'id': 'polkadot', 'name': 'Polkadot', 'symbol': 'DOT', 'type': 'crypto', 'coingecko_id': 'polkadot', 'min_investment_kes': 450, 'hourly_income_range': [85, 135], 'duration': 24},
+        {'id': 'matic-network', 'name': 'Polygon', 'symbol': 'MATIC', 'type': 'crypto', 'coingecko_id': 'matic-network', 'min_investment_kes': 450, 'hourly_income_range': [80, 125], 'duration': 24},
+        {'id': 'avalanche-2', 'name': 'Avalanche', 'symbol': 'AVAX', 'type': 'crypto', 'coingecko_id': 'avalanche-2', 'min_investment_kes': 450, 'hourly_income_range': [90, 145], 'duration': 24}
+    ],
+    'stocks': [
+        {'id': 'apple', 'name': 'Apple Inc', 'symbol': 'AAPL', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [60, 100], 'duration': 24},
+        {'id': 'microsoft', 'name': 'Microsoft Corp', 'symbol': 'MSFT', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [55, 95], 'duration': 24},
+        {'id': 'tesla', 'name': 'Tesla Inc', 'symbol': 'TSLA', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [70, 120], 'duration': 24},
+        {'id': 'amazon', 'name': 'Amazon.com Inc', 'symbol': 'AMZN', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [65, 110], 'duration': 24},
+        {'id': 'google', 'name': 'Alphabet Inc', 'symbol': 'GOOGL', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [60, 105], 'duration': 24},
+        {'id': 'meta', 'name': 'Meta Platforms', 'symbol': 'META', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [75, 125], 'duration': 24},
+        {'id': 'nvidia', 'name': 'NVIDIA Corp', 'symbol': 'NVDA', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [85, 140], 'duration': 24},
+        {'id': 'netflix', 'name': 'Netflix Inc', 'symbol': 'NFLX', 'type': 'stocks', 'min_investment_kes': 500, 'hourly_income_range': [70, 115], 'duration': 24},
+        {'id': 'safaricom', 'name': 'Safaricom PLC', 'symbol': 'SCOM', 'type': 'stocks', 'min_investment_kes': 300, 'hourly_income_range': [40, 80], 'duration': 24},
+        {'id': 'equity-group', 'name': 'Equity Group Holdings', 'symbol': 'EQTY', 'type': 'stocks', 'min_investment_kes': 300, 'hourly_income_range': [35, 75], 'duration': 24}
+    ],
+    'forex': [
+        {'id': 'usd-kes', 'name': 'USD/KES', 'symbol': 'USDKES', 'type': 'forex', 'forex_pair': 'USD/KES', 'min_investment_kes': 400, 'hourly_income_range': [50, 90], 'duration': 24},
+        {'id': 'eur-kes', 'name': 'EUR/KES', 'symbol': 'EURKES', 'type': 'forex', 'forex_pair': 'EUR/KES', 'min_investment_kes': 400, 'hourly_income_range': [45, 85], 'duration': 24},
+        {'id': 'gbp-kes', 'name': 'GBP/KES', 'symbol': 'GBPKES', 'type': 'forex', 'forex_pair': 'GBP/KES', 'min_investment_kes': 400, 'hourly_income_range': [48, 88], 'duration': 24},
+        {'id': 'jpy-kes', 'name': 'JPY/KES', 'symbol': 'JPYKES', 'type': 'forex', 'forex_pair': 'JPY/KES', 'min_investment_kes': 400, 'hourly_income_range': [42, 80], 'duration': 24},
+        {'id': 'cad-kes', 'name': 'CAD/KES', 'symbol': 'CADKES', 'type': 'forex', 'forex_pair': 'CAD/KES', 'min_investment_kes': 400, 'hourly_income_range': [44, 82], 'duration': 24},
+        {'id': 'aud-kes', 'name': 'AUD/KES', 'symbol': 'AUDKES', 'type': 'forex', 'forex_pair': 'AUD/KES', 'min_investment_kes': 400, 'hourly_income_range': [46, 84], 'duration': 24},
+        {'id': 'chf-kes', 'name': 'CHF/KES', 'symbol': 'CHFKES', 'type': 'forex', 'forex_pair': 'CHF/KES', 'min_investment_kes': 400, 'hourly_income_range': [50, 90], 'duration': 24},
+        {'id': 'cny-kes', 'name': 'CNY/KES', 'symbol': 'CNYKES', 'type': 'forex', 'forex_pair': 'CNY/KES', 'min_investment_kes': 400, 'hourly_income_range': [40, 78], 'duration': 24},
+        {'id': 'inr-kes', 'name': 'INR/KES', 'symbol': 'INRKES', 'type': 'forex', 'forex_pair': 'INR/KES', 'min_investment_kes': 400, 'hourly_income_range': [38, 75], 'duration': 24},
+        {'id': 'zar-kes', 'name': 'ZAR/KES', 'symbol': 'ZARKES', 'type': 'forex', 'forex_pair': 'ZAR/KES', 'min_investment_kes': 400, 'hourly_income_range': [42, 80], 'duration': 24}
+    ],
+    'commodities': [
+        {'id': 'gold', 'name': 'Gold', 'symbol': 'XAU', 'type': 'commodities', 'min_investment_kes': 600, 'hourly_income_range': [55, 95], 'duration': 24},
+        {'id': 'silver', 'name': 'Silver', 'symbol': 'XAG', 'type': 'commodities', 'min_investment_kes': 600, 'hourly_income_range': [50, 90], 'duration': 24},
+        {'id': 'crude-oil', 'name': 'Crude Oil', 'symbol': 'OIL', 'type': 'commodities', 'min_investment_kes': 600, 'hourly_income_range': [65, 110], 'duration': 24},
+        {'id': 'natural-gas', 'name': 'Natural Gas', 'symbol': 'GAS', 'type': 'commodities', 'min_investment_kes': 600, 'hourly_income_range': [60, 105], 'duration': 24},
+        {'id': 'copper', 'name': 'Copper', 'symbol': 'COP', 'type': 'commodities', 'min_investment_kes': 600, 'hourly_income_range': [45, 85], 'duration': 24},
+        {'id': 'coffee', 'name': 'Coffee', 'symbol': 'COF', 'type': 'commodities', 'min_investment_kes': 400, 'hourly_income_range': [40, 80], 'duration': 24},
+        {'id': 'wheat', 'name': 'Wheat', 'symbol': 'WHE', 'type': 'commodities', 'min_investment_kes': 400, 'hourly_income_range': [35, 75], 'duration': 24},
+        {'id': 'corn', 'name': 'Corn', 'symbol': 'COR', 'type': 'commodities', 'min_investment_kes': 400, 'hourly_income_range': [38, 78], 'duration': 24},
+        {'id': 'soybean', 'name': 'Soybean', 'symbol': 'SOY', 'type': 'commodities', 'min_investment_kes': 400, 'hourly_income_range': [36, 76], 'duration': 24},
+        {'id': 'sugar', 'name': 'Sugar', 'symbol': 'SUG', 'type': 'commodities', 'min_investment_kes': 400, 'hourly_income_range': [42, 82], 'duration': 24}
+    ]
+}
+
+# TODAY'S BASE PRICES (in KES)
+TODAYS_BASE_PRICES = {
+    # Crypto
+    'BTC': 9203600.00, 'ETH': 301697.00, 'BNB': 32178.00, 'SOL': 10789.00,
+    'XRP': 650.50, 'ADA': 120.75, 'DOGE': 15.80, 'DOT': 850.25,
+    'MATIC': 95.60, 'AVAX': 4200.75,
+    
+    # Stocks (in KES equivalent)
+    'AAPL': 18500.00, 'MSFT': 34200.00, 'TSLA': 21500.00, 'AMZN': 15200.00,
+    'GOOGL': 12800.00, 'META': 32500.00, 'NVDA': 42500.00, 'NFLX': 48500.00,
+    'SCOM': 25.60, 'EQTY': 42.30,
+    
+    # Forex (KES pairs)
+    'USDKES': 130.50, 'EURKES': 142.25, 'GBPKES': 165.80, 'JPYKES': 0.88,
+    'CADKES': 96.45, 'AUDKES': 86.75, 'CHFKES': 148.90, 'CNYKES': 18.25,
+    'INRKES': 1.56, 'ZARKES': 7.05,
+    
+    # Commodities (in KES equivalent)
+    'XAU': 9500.00, 'XAG': 110.50, 'OIL': 9800.00, 'GAS': 320.75,
+    'COP': 1250.00, 'COF': 280.40, 'WHE': 350.25, 'COR': 295.80,
+    'SOY': 420.60, 'SUG': 75.30
+}
+
+
 # Asset price generation functions
 async def fetch_real_crypto_price(coin_id: str, symbol: str):
     """
