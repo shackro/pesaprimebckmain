@@ -4,7 +4,36 @@ from pydantic import BaseModel, EmailStr, validator
 from typing import Optional, List, Dict
 from datetime import datetime
 import json, os, uuid, random
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+app = FastAPI()
+
+# Allow frontend domain + mobile + local dev
+origins = [
+    "*",  # Temp: allow all until stable
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],      # <-- MUST ALLOW OPTIONS HERE
+    allow_headers=["*"],      # <-- MUST ALLOW ALL HEADERS
+)
+
+# ------------------------------
+# IMPORT ROUTES AFTER CORS
+# ------------------------------
+from app.routes import auth, wallet, pnl, investments
+
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(wallet.router, prefix="/api/wallet", tags=["Wallet"])
+app.include_router(pnl.router, prefix="/api/pnl", tags=["P&L"])
+app.include_router(investments.router, prefix="/api/investments", tags=["Investments"])
+
+
+    
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -118,7 +147,7 @@ def startup():
 
 @app.get("/")
 def root():
-    return {"message":"PesaPrime API (no-jwt)", "status":"running"}
+    return {"message":"PesaPrime API", "status":"running"}
 
 # AUTH: register + login (no JWT). returns the user object only
 @app.post("/api/auth/register")
