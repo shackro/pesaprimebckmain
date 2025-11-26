@@ -33,7 +33,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:8002",
     "http://localhost:5173",
-    "https://pesaprime.vercel.app",
+    "https://pesaprimev2.vercel.app",
     "https://your-production-domain.com"
 ]
 
